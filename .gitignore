@@ -1,0 +1,31 @@
+# Environment Variables - DO NOT COMMIT
+.env
+.env.local
+.env.production
+backend/.env
+frontend/.env
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
