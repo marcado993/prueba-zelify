@@ -13,15 +13,14 @@ Sistema de verificación de identidad usando AWS (S3, Textract, Rekognition).
 cp .env.example .env
 
 # Editar con tus credenciales AWS
-nano .env
 ```
 
-**Variables requeridas:**
+**Variables requeridas en `.env`:**
 ```env
-AWS_ACCESS_KEY_ID=tu_access_key
-AWS_SECRET_ACCESS_KEY=tu_secret_key
+AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX
+AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 AWS_REGION=us-east-1
-AWS_S3_BUCKET=nombre-de-tu-bucket
+AWS_S3_BUCKET=nombre-de-tu-bucket-s3
 REKOGNITION_SIMILARITY_THRESHOLD=85
 ```
 
@@ -33,9 +32,125 @@ docker-compose up --build
 
 ### 3. Acceder a la Aplicación
 
-- **Frontend:** http://localhost
-- **Backend API:** http://localhost:3000
-- **Swagger Docs:** http://localhost:3000/api
+| Servicio | URL |
+|----------|-----|
+| **Frontend** | http://localhost |
+| **Backend API** | http://localhost:3000 |
+| **Swagger Docs** | http://localhost:3000/api |
+
+---
+
+## 📱 Guía de Uso - Frontend
+
+### Paso 1: Subir Documento de Identidad
+
+1. Abre http://localhost en tu navegador
+2. Ingresa un **User ID** (cualquier identificador, ej: `user-123`)
+3. Selecciona tu **país** (Ecuador, Colombia, México, USA)
+4. Haz clic en **"Frente del Documento"** y selecciona la foto del frente de tu cédula
+5. Haz clic en **"Reverso del Documento"** y selecciona la foto del reverso (opcional)
+6. Haz clic en **"Process Documents"**
+
+> ⏳ Espera mientras AWS Textract extrae los datos de tu documento
+
+### Paso 2: Verificar Identidad con Selfie
+
+1. Revisa los **datos extraídos** mostrados en pantalla
+2. Haz clic en **"Start Camera"** para activar tu cámara web
+3. Posiciona tu rostro en el centro de la pantalla
+4. Haz clic en **"Capture Photo"** para tomar la selfie
+5. Si no quedó bien, haz clic en **"Retake"** para intentar de nuevo
+6. Haz clic en **"Verify Identity"**
+
+> ⏳ Espera mientras AWS Rekognition compara tu selfie con la foto del documento
+
+### Paso 3: Ver Resultado
+
+- ✅ **Identity Verified!** → Tu rostro coincide con el documento (similitud >= 85%)
+- ❌ **Verification Failed** → Tu rostro no coincide (similitud < 85%)
+
+---
+
+## 🔧 Guía de Uso - Swagger API
+
+### Acceder a Swagger
+
+1. Abre http://localhost:3000/api en tu navegador
+2. Verás la documentación interactiva de la API
+
+### Endpoint 1: Procesar Documentos (`POST /kyc/textract`)
+
+1. Haz clic en **POST /kyc/textract**
+2. Haz clic en **"Try it out"**
+3. Completa los campos:
+   - **front**: Selecciona archivo de imagen (frente del documento)
+   - **back**: Selecciona archivo de imagen (reverso, opcional)
+   - **userId**: Escribe un ID de usuario (ej: `user-123`)
+   - **country**: Escribe el código del país (`EC`, `CO`, `MX`, `US`)
+4. Haz clic en **"Execute"**
+5. En la respuesta verás:
+   - `documentId`: Guarda este ID para el siguiente paso
+   - `data.front`: Datos extraídos del frente
+   - `data.back`: Datos extraídos del reverso
+
+**Ejemplo de respuesta:**
+```json
+{
+  "success": true,
+  "data": {
+    "front": {
+      "id_number": "0450176870",
+      "surnames": "GUERRERO HINOJOSA",
+      "names": "LUIS ANDRES",
+      "nationality": "ECUATORIANA",
+      "birth_date": "15 NOV 2002",
+      "sex": "HOMBRE"
+    },
+    "back": {
+      "father_name": "GUERRERO SANCHEZ LUIS EDUARDO",
+      "mother_name": "HINOJOSA OBANDO NIMIA YOLANDA",
+      "civil_status": "SOLTERO"
+    }
+  },
+  "documentId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "message": "Documentos procesados exitosamente"
+}
+```
+
+### Endpoint 2: Verificar Selfie (`POST /kyc/selfieprove`)
+
+1. Haz clic en **POST /kyc/selfieprove**
+2. Haz clic en **"Try it out"**
+3. Completa los campos:
+   - **selfie**: Selecciona archivo de imagen (tu selfie)
+   - **documentId**: Pega el `documentId` del paso anterior
+4. Haz clic en **"Execute"**
+5. En la respuesta verás:
+   - `isMatch`: `true` si los rostros coinciden
+   - `similarity`: Porcentaje de similitud (ej: 95.5)
+   - `status`: `approved` o `declined`
+
+**Ejemplo de respuesta exitosa:**
+```json
+{
+  "isMatch": true,
+  "similarity": 95.5,
+  "confidence": 99.8,
+  "status": "approved",
+  "message": "Face verification successful. Similarity: 95.50%"
+}
+```
+
+**Ejemplo de respuesta fallida:**
+```json
+{
+  "isMatch": false,
+  "similarity": 45.2,
+  "confidence": 98.0,
+  "status": "declined",
+  "message": "Face verification failed. Similarity: 45.20% is below threshold of 85%"
+}
+```
 
 ---
 
@@ -50,16 +165,6 @@ docker-compose up --build
 └─────────────────┘     └──────────────────┘     └─────────────────┘
 ```
 
-### Componentes
-
-| Servicio | Puerto | Descripción |
-|----------|--------|-------------|
-| Frontend | 80 | Interfaz de usuario (HTML/CSS/JS + Nginx) |
-| Backend | 3000 | API REST (NestJS + TypeORM + SQLite) |
-| S3 | AWS | Almacenamiento de documentos y selfies |
-| Textract | AWS | OCR para extracción de datos |
-| Rekognition | AWS | Comparación facial biométrica |
-
 ---
 
 ## 📁 Estructura del Proyecto
@@ -67,11 +172,11 @@ docker-compose up --build
 ```
 kyc-system/
 ├── docker-compose.yml      # Orquestación de contenedores
-├── .env.example            # Variables de entorno (template)
-├── .env                    # Variables de entorno (local, no en git)
+├── .env.example            # Template de variables de entorno
+├── README.md               # Esta documentación
 │
 ├── backend/
-│   ├── Dockerfile          # Imagen Docker del backend
+│   ├── Dockerfile
 │   ├── src/
 │   │   ├── aws/            # Servicios AWS (S3, Textract, Rekognition)
 │   │   ├── kyc/            # Lógica de negocio KYC
@@ -84,8 +189,8 @@ kyc-system/
 │   └── package.json
 │
 └── frontend/
-    ├── Dockerfile          # Imagen Docker del frontend
-    ├── nginx.conf          # Configuración de Nginx
+    ├── Dockerfile
+    ├── nginx.conf
     ├── index.html
     ├── styles.css
     └── app.js
@@ -93,78 +198,7 @@ kyc-system/
 
 ---
 
-## 📡 API Endpoints
-
-### `POST /kyc/textract`
-Procesa documentos de identidad con OCR.
-
-```bash
-curl -X POST http://localhost:3000/kyc/textract \
-  -F "front=@cedula_frente.jpg" \
-  -F "back=@cedula_reverso.jpg" \
-  -F "userId=user-123" \
-  -F "country=EC"
-```
-
-### `POST /kyc/selfieprove`
-Verifica identidad con comparación facial.
-
-```bash
-curl -X POST http://localhost:3000/kyc/selfieprove \
-  -F "selfie=@selfie.jpg" \
-  -F "documentId=uuid-del-documento"
-```
-
----
-
-## 🧪 Tests
-
-### Ejecutar Tests Unitarios
-
-```bash
-cd backend
-npm run test
-```
-
-### Tests del Servicio Biométrico
-
-```bash
-npm run test -- rekognition.service.spec.ts
-```
-
-**Casos de prueba incluidos:**
-- ✅ Match exitoso (similitud >= 85%)
-- ❌ Match fallido (similitud < 85%)
-- ❌ Rostros no coinciden
-- ❌ No se detectan rostros
-- ⚠️ Manejo de InvalidParameterException
-- 🎯 Threshold personalizado
-- 💥 Re-throw de errores no manejados
-
----
-
-## 🔧 Desarrollo Local (sin Docker)
-
-### Backend
-
-```bash
-cd backend
-npm install
-npm run start:dev
-```
-
-### Frontend
-
-```bash
-# Simplemente abre index.html en el navegador
-# O usa un servidor local:
-cd frontend
-npx serve .
-```
-
----
-
-## 🌍 Países Soportados
+##  Países Soportados
 
 | Código | País | Documento |
 |--------|------|-----------|
@@ -175,12 +209,11 @@ npx serve .
 
 ---
 
-## ⚙️ Configuración AWS
+## ⚙️ Configuración AWS Requerida
 
-### Bucket S3 Requerido
+### 1. Bucket S3
 
-1. Crear bucket en `us-east-1`
-2. Agregar política para Textract:
+Crear un bucket en `us-east-1` con la siguiente política:
 
 ```json
 {
@@ -198,7 +231,9 @@ npx serve .
 }
 ```
 
-### Permisos IAM Requeridos
+### 2. Usuario IAM
+
+Crear un usuario IAM con los siguientes permisos:
 
 ```json
 {
@@ -206,26 +241,17 @@ npx serve .
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject"
-      ],
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::tu-bucket/*"
     },
     {
       "Effect": "Allow",
-      "Action": [
-        "textract:AnalyzeDocument",
-        "textract:DetectDocumentText"
-      ],
+      "Action": ["textract:AnalyzeDocument", "textract:DetectDocumentText"],
       "Resource": "*"
     },
     {
       "Effect": "Allow",
-      "Action": [
-        "rekognition:CompareFaces"
-      ],
+      "Action": ["rekognition:CompareFaces"],
       "Resource": "*"
     }
   ]
@@ -234,36 +260,42 @@ npx serve .
 
 ---
 
-## 🔐 Seguridad
+## 🧪 Desarrollo Local (sin Docker)
 
-- Las credenciales AWS se pasan via variables de entorno
-- Los archivos `.env` están en `.gitignore`
-- Las imágenes se almacenan en S3 privado
-- El threshold de similitud es configurable (default: 85%)
+### Backend
+```bash
+cd backend
+npm install
+npm run start:dev
+```
+
+### Frontend
+```bash
+# Abrir frontend/index.html en el navegador
+# O usar un servidor local:
+cd frontend
+npx serve .
+```
+
+---
+
+## 🧩 Patrones de Diseño Implementados
+
+- **Strategy Pattern**: Parsers específicos por país
+- **Service Pattern**: S3Service, TextractService, RekognitionService
+- **DTO Pattern**: Validación de entrada/salida
+- **Module Pattern**: Segregación de responsabilidades (NestJS)
 
 ---
 
 ## 📊 Manejo de Errores
 
-| Código | Descripción |
-|--------|-------------|
+| Código HTTP | Descripción |
+|-------------|-------------|
+| 200/201 | Operación exitosa |
 | 400 | Request inválido (archivo faltante, formato incorrecto) |
 | 404 | Documento no encontrado |
-| 500 | Error interno (AWS service unavailable) |
-
-Los logs incluyen:
-- Líneas extraídas por Textract
-- Errores de AWS con detalles
-- Resultados de comparación facial
-
----
-
-## 🧩 Patrones de Diseño
-
-- **Strategy Pattern**: Parsers específicos por país
-- **Repository Pattern**: Acceso a datos con TypeORM
-- **DTO Pattern**: Validación de entrada/salida
-- **Module Pattern**: Segregación de responsabilidades (NestJS)
+| 500 | Error interno del servidor |
 
 ---
 
@@ -278,9 +310,3 @@ Los logs incluyen:
 | Container | Docker, Docker Compose |
 | Server | Nginx |
 | Docs | Swagger/OpenAPI |
-
----
-
-## 👨‍💻 Autor
-
-Sistema KYC desarrollado como challenge técnico.
