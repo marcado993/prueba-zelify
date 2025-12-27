@@ -1,6 +1,6 @@
 # 🛡️ Sistema KYC (Know Your Customer)
 
-Sistema de verificación de identidad usando AWS (S3, Textract, Rekognition).
+Sistema de verificación de identidad usando AWS (S3, Textract, Rekognition) desarrollado con NestJS y TypeScript.
 
 ---
 
@@ -9,10 +9,7 @@ Sistema de verificación de identidad usando AWS (S3, Textract, Rekognition).
 ### 1. Configurar Variables de Entorno
 
 ```bash
-# Copiar el archivo de ejemplo
 cp .env.example .env
-
-# Editar con tus credenciales AWS
 ```
 
 **Variables requeridas en `.env`:**
@@ -40,60 +37,128 @@ docker-compose up --build
 
 ---
 
-## 📱 Guía de Uso - Frontend
+## 🏗️ Arquitectura del Sistema
 
-### Paso 1: Subir Documento de Identidad
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│                 │     │                  │     │                 │
+│    FRONTEND     │────▶│     BACKEND      │────▶│    AWS CLOUD    │
+│   (Nginx:80)    │     │   (NestJS:3000)  │     │  S3/Textract/   │
+│                 │◀────│                  │◀────│   Rekognition   │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
 
-1. Abre http://localhost en tu navegador
-2. Ingresa un **User ID** (cualquier identificador, ej: `user-123`)
-3. Selecciona tu **país** (Ecuador, Colombia, México, USA)
-4. Haz clic en **"Frente del Documento"** y selecciona la foto del frente de tu cédula
-5. Haz clic en **"Reverso del Documento"** y selecciona la foto del reverso (opcional)
-6. Haz clic en **"Process Documents"**
+### Flujo de Verificación KYC
 
-> ⏳ Espera mientras AWS Textract extrae los datos de tu documento
-
-### Paso 2: Verificar Identidad con Selfie
-
-1. Revisa los **datos extraídos** mostrados en pantalla
-2. Haz clic en **"Start Camera"** para activar tu cámara web
-3. Posiciona tu rostro en el centro de la pantalla
-4. Haz clic en **"Capture Photo"** para tomar la selfie
-5. Si no quedó bien, haz clic en **"Retake"** para intentar de nuevo
-6. Haz clic en **"Verify Identity"**
-
-> ⏳ Espera mientras AWS Rekognition compara tu selfie con la foto del documento
-
-### Paso 3: Ver Resultado
-
-- ✅ **Identity Verified!** → Tu rostro coincide con el documento (similitud >= 85%)
-- ❌ **Verification Failed** → Tu rostro no coincide (similitud < 85%)
+```
+1. Usuario sube documento de identidad
+         ↓
+2. Backend guarda imagen en AWS S3
+         ↓
+3. AWS Textract extrae texto del documento (OCR)
+         ↓
+4. Strategy Pattern parsea datos según el país
+         ↓
+5. Usuario toma selfie con cámara web
+         ↓
+6. AWS Rekognition compara rostros
+         ↓
+7. Sistema aprueba/rechaza verificación (threshold: 85%)
+```
 
 ---
 
-## 🔧 Guía de Uso - Swagger API
+## 📁 Estructura del Proyecto
 
-### Acceder a Swagger
+```
+kyc-system/
+├── docker-compose.yml
+├── .env.example
+│
+├── backend/                          # NestJS API
+│   ├── Dockerfile
+│   ├── src/
+│   │   ├── main.ts                   # Punto de entrada
+│   │   ├── app.module.ts             # Módulo principal
+│   │   │
+│   │   ├── aws/                      # 🌩️ Servicios AWS
+│   │   │   ├── s3.service.ts         # Upload/download S3
+│   │   │   ├── textract.service.ts   # OCR de documentos
+│   │   │   └── rekognition.service.ts# Comparación facial
+│   │   │
+│   │   └── kyc/                      # 📋 Lógica de negocio
+│   │       ├── kyc.controller.ts     # Endpoints REST
+│   │       ├── kyc.service.ts        # Orquestador principal
+│   │       ├── dto/                  # Data Transfer Objects
+│   │       ├── entities/             # Entidad SQLite
+│   │       └── strategies/           # Parsers por país
+│   │           ├── ecuador-identity.strategy.ts
+│   │           ├── colombia-identity.strategy.ts
+│   │           ├── mexico-identity.strategy.ts
+│   │           └── usa-identity.strategy.ts
+│   │
+│   └── package.json
+│
+└── frontend/                         # UI estática
+    ├── Dockerfile
+    ├── nginx.conf
+    ├── index.html
+    ├── styles.css
+    └── app.js
+```
 
-1. Abre http://localhost:3000/api en tu navegador
-2. Verás la documentación interactiva de la API
+---
 
-### Endpoint 1: Procesar Documentos (`POST /kyc/textract`)
+## 🔧 Backend - Componentes Principales
 
-1. Haz clic en **POST /kyc/textract**
-2. Haz clic en **"Try it out"**
-3. Completa los campos:
-   - **front**: Selecciona archivo de imagen (frente del documento)
-   - **back**: Selecciona archivo de imagen (reverso, opcional)
-   - **userId**: Escribe un ID de usuario (ej: `user-123`)
-   - **country**: Escribe el código del país (`EC`, `CO`, `MX`, `US`)
-4. Haz clic en **"Execute"**
-5. En la respuesta verás:
-   - `documentId`: Guarda este ID para el siguiente paso
-   - `data.front`: Datos extraídos del frente
-   - `data.back`: Datos extraídos del reverso
+### S3Service - Almacenamiento
+```typescript
+uploadFile(file, folder) → { key: "documents/front-uuid.jpg" }
+getBucketName() → "kyc-demo-bucket"
+```
 
-**Ejemplo de respuesta:**
+### TextractService - OCR
+```typescript
+analyzeDocumentFromS3(bucket, key) → Block[]
+// Devuelve líneas de texto extraídas del documento
+```
+
+### RekognitionService - Biometría
+```typescript
+compareFaces(documentS3Key, selfieS3Key) → {
+  isMatch: boolean,
+  similarity: number,  // 0-100%
+  message: string
+}
+```
+
+### KycService - Orquestador
+```typescript
+processDocuments(front, back, userId, country) → ExtractDocumentResponseDto
+verifySelfie(selfie, documentId) → SelfieVerificationDto
+```
+
+### Strategy Pattern - Parsers por País
+```
+EC → EcuadorIdentityStrategy  (Cédula de Identidad)
+CO → ColombiaIdentityStrategy (Cédula de Ciudadanía)
+MX → MexicoIdentityStrategy   (INE)
+US → USAIdentityStrategy      (Driver License)
+```
+
+---
+
+## 📡 API Endpoints
+
+### `POST /kyc/textract` - Procesar Documentos
+
+**Request (multipart/form-data):**
+- `front`: imagen del frente del documento (requerido)
+- `back`: imagen del reverso (opcional)
+- `userId`: string
+- `country`: `EC` | `CO` | `MX` | `US`
+
+**Response:**
 ```json
 {
   "success": true,
@@ -117,36 +182,27 @@ docker-compose up --build
 }
 ```
 
-### Endpoint 2: Verificar Selfie (`POST /kyc/selfieprove`)
+### `POST /kyc/selfieprove` - Verificar Identidad
 
-1. Haz clic en **POST /kyc/selfieprove**
-2. Haz clic en **"Try it out"**
-3. Completa los campos:
-   - **selfie**: Selecciona archivo de imagen (tu selfie)
-   - **documentId**: Pega el `documentId` del paso anterior
-4. Haz clic en **"Execute"**
-5. En la respuesta verás:
-   - `isMatch`: `true` si los rostros coinciden
-   - `similarity`: Porcentaje de similitud (ej: 95.5)
-   - `status`: `approved` o `declined`
+**Request (multipart/form-data):**
+- `selfie`: imagen de selfie
+- `documentId`: UUID del documento procesado
 
-**Ejemplo de respuesta exitosa:**
+**Response (aprobado):**
 ```json
 {
   "isMatch": true,
   "similarity": 95.5,
-  "confidence": 99.8,
   "status": "approved",
   "message": "Face verification successful. Similarity: 95.50%"
 }
 ```
 
-**Ejemplo de respuesta fallida:**
+**Response (rechazado):**
 ```json
 {
   "isMatch": false,
   "similarity": 45.2,
-  "confidence": 98.0,
   "status": "declined",
   "message": "Face verification failed. Similarity: 45.20% is below threshold of 85%"
 }
@@ -154,87 +210,40 @@ docker-compose up --build
 
 ---
 
-## 🏗️ Arquitectura
+## 📱 Guía de Uso - Frontend
 
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│                 │     │                  │     │                 │
-│    FRONTEND     │────▶│     BACKEND      │────▶│    AWS CLOUD    │
-│   (Nginx:80)    │     │   (NestJS:3000)  │     │  S3/Textract/   │
-│                 │◀────│                  │◀────│   Rekognition   │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-```
+1. **Ingresar User ID** y seleccionar país
+2. **Subir documento** (frente y reverso)
+3. **Click "Process Documents"** → Ver datos extraídos
+4. **Activar cámara** y capturar selfie
+5. **Click "Verify Identity"** → Ver resultado
 
 ---
 
-## 📁 Estructura del Proyecto
+## 🔧 Guía de Uso - Swagger
 
-```
-kyc-system/
-├── docker-compose.yml      # Orquestación de contenedores
-├── .env.example            # Template de variables de entorno
-├── README.md               # Esta documentación
-│
-├── backend/
-│   ├── Dockerfile
-│   ├── src/
-│   │   ├── aws/            # Servicios AWS (S3, Textract, Rekognition)
-│   │   ├── kyc/            # Lógica de negocio KYC
-│   │   │   ├── dto/        # Data Transfer Objects
-│   │   │   ├── entities/   # Entidades de base de datos
-│   │   │   ├── strategies/ # Strategy Pattern por país
-│   │   │   ├── kyc.controller.ts
-│   │   │   └── kyc.service.ts
-│   │   └── main.ts
-│   └── package.json
-│
-└── frontend/
-    ├── Dockerfile
-    ├── nginx.conf
-    ├── index.html
-    ├── styles.css
-    └── app.js
-```
+1. Abrir http://localhost:3000/api
+2. **POST /kyc/textract**: Subir documento y copiar `documentId`
+3. **POST /kyc/selfieprove**: Subir selfie con el `documentId`
 
 ---
 
-##  Países Soportados
+## ⚙️ Configuración AWS
 
-| Código | País | Documento |
-|--------|------|-----------|
-| EC | Ecuador | Cédula de Identidad |
-| CO | Colombia | Cédula de Ciudadanía |
-| MX | México | INE |
-| US | USA | Driver License |
-
----
-
-## ⚙️ Configuración AWS Requerida
-
-### 1. Bucket S3
-
-Crear un bucket en `us-east-1` con la siguiente política:
-
+### Bucket S3
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "textract.amazonaws.com"
-      },
-      "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::tu-bucket/*"
-    }
-  ]
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "textract.amazonaws.com" },
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::tu-bucket/*"
+  }]
 }
 ```
 
-### 2. Usuario IAM
-
-Crear un usuario IAM con los siguientes permisos:
-
+### Usuario IAM
 ```json
 {
   "Version": "2012-10-17",
@@ -260,53 +269,47 @@ Crear un usuario IAM con los siguientes permisos:
 
 ---
 
-## 🧪 Desarrollo Local (sin Docker)
+## 🧩 Patrones de Diseño
 
-### Backend
-```bash
-cd backend
-npm install
-npm run start:dev
-```
-
-### Frontend
-```bash
-# Abrir frontend/index.html en el navegador
-# O usar un servidor local:
-cd frontend
-npx serve .
-```
-
----
-
-## 🧩 Patrones de Diseño Implementados
-
-- **Strategy Pattern**: Parsers específicos por país
-- **Service Pattern**: S3Service, TextractService, RekognitionService
-- **DTO Pattern**: Validación de entrada/salida
-- **Module Pattern**: Segregación de responsabilidades (NestJS)
+| Patrón | Uso |
+|--------|-----|
+| **Strategy** | Parsers específicos por país |
+| **Service** | S3Service, TextractService, RekognitionService |
+| **DTO** | Validación de entrada/salida |
+| **Module** | Segregación de responsabilidades (NestJS) |
+| **Repository** | TypeORM para acceso a datos |
 
 ---
 
 ## 📊 Manejo de Errores
 
-| Código HTTP | Descripción |
-|-------------|-------------|
+| HTTP | Descripción |
+|------|-------------|
 | 200/201 | Operación exitosa |
-| 400 | Request inválido (archivo faltante, formato incorrecto) |
+| 400 | Request inválido |
 | 404 | Documento no encontrado |
-| 500 | Error interno del servidor |
+| 500 | Error interno |
+
+---
+
+## 🧪 Desarrollo Local
+
+```bash
+# Backend
+cd backend && npm install && npm run start:dev
+
+# Frontend
+# Abrir frontend/index.html en navegador
+```
 
 ---
 
 ## 📚 Tecnologías
 
-| Categoría | Tecnología |
-|-----------|------------|
-| Backend | NestJS, TypeScript, TypeORM |
-| Frontend | HTML5, CSS3, JavaScript |
-| Database | SQLite |
+| Categoría | Stack |
+|-----------|-------|
+| Backend | NestJS, TypeScript, TypeORM, SQLite |
+| Frontend | HTML5, CSS3, JavaScript, Nginx |
 | Cloud | AWS S3, Textract, Rekognition |
-| Container | Docker, Docker Compose |
-| Server | Nginx |
+| DevOps | Docker, Docker Compose |
 | Docs | Swagger/OpenAPI |
